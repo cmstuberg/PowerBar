@@ -102,6 +102,7 @@ static void selftestResult (BOOL pass, NSString *detail) {
     [upNextText release];
     [artFile release];
     [flow release];
+    [pendingFlow release];
     [engine release];
     [actionPanel release];
     [window release];
@@ -595,7 +596,26 @@ static NSString *widgetsDirectory (void) {
 - (void)runFlow:(PPBFlow *)f {
     if (![self clearFlow]) return;
     [flow release];
+    flow = nil;
+    if (drainPrompts) {
+        /* A feature just ended early, and pianobar may still ask its questions. Start
+         * this one when pianobar is back in its main loop (the next time tick), so
+         * those questions get backed out of instead of landing in the new feature.
+         * While paused there may be no ticks, hence the fallback. */
+        [pendingFlow release];
+        pendingFlow = [f retain];
+        [self performSelector:@selector(startPendingFlow) withObject:nil afterDelay:1.5];
+        return;
+    }
     flow = [f retain];
+    [flow start];
+}
+
+- (void)startPendingFlow {
+    if (pendingFlow == nil || flow != nil) return;
+    drainPrompts = NO;
+    flow = pendingFlow;
+    pendingFlow = nil;
     [flow start];
 }
 
@@ -1121,6 +1141,7 @@ static NSString *widgetsDirectory (void) {
     [self showTime];
     if ([NSDate timeIntervalSinceReferenceDate] - nowPlayingWritten >= 10) [self writeNowPlaying:YES];
     [flow mainLoop];
+    [self startPendingFlow];
 }
 
 - (void)engine:(PPBEngine *)e prompt:(NSString *)prompt {

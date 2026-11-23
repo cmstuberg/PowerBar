@@ -236,7 +236,10 @@ function render () {
     var art = st.art || "";
     if (art != artName) {
         artName = art;
-        loadArt (art ? fileURL (base + art) : "Images/placeholder.png");
+        /* PowerBar alternates two cover file names, and WebKit keeps images it has
+         * loaded by URL: song 3's "cover-1" would show song 1's picture. A query that's
+         * new for each song (when PowerBar wrote it) makes WebKit read the file again. */
+        loadArt (art ? fileURL (base + art) + "?v=" + st.written : "Images/placeholder.png");
     }
     drawButtons ();
     showTime ();

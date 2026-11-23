@@ -42,6 +42,7 @@
     PPBActionPanel *actionPanel; /* the general panel (history, genres, settings) */
     PPBFlow *flow;               /* the feature running now, if any */
     BOOL drainPrompts;           /* a flow ended early: back out of stray questions */
+    PPBFlow *pendingFlow;        /* started while draining: runs at the main loop */
 
     NSString *account;
     NSString *artURL;

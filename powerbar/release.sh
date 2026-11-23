@@ -11,7 +11,7 @@
 #
 #  1. checks: PPC-Projects committed and pushed; the version isn't released yet and its
 #     build number is higher than any in the appcast; the signing key matches
-#     SUPublicEDKey; key and GitHub token are mode 600
+#     SUPublicEDKey; key and GitHub token are mode 600; the CA bundle is under 120 days old
 #  2. tests: make test in sparkle/ and powerbar/
 #  3. build: a clean `make dist` (ditto zip), unzipped again to check the version, that
 #     every Mach-O has its g3/g4/g5 slices, and that framework symlinks survived
@@ -94,9 +94,17 @@ if git ls-remote --tags "$GIT_URL" "refs/tags/v$VERSION" | grep -q .; then
 fi
 rm -rf "$W"; mkdir -p "$W"
 git clone -q "$GIT_URL" "$P"
+# The CA bundle ships in the app and in Sparkle, and it's what the next update is
+# fetched with: a stale one can strand users. Refresh it at least every 120 days.
+CA_AGE=$($PY -c '
+import re, sys, time, calendar
+m = re.search(r"as of: \w+ (\w+ +\d+ [\d:]+ \d+)", open(sys.argv[1]).read(4096))
+t = calendar.timegm(time.strptime(re.sub(" +", " ", m.group(1)), "%b %d %H:%M:%S %Y"))
+print(int((time.time() - t) / 86400))' "$TOP/tls/cacert.pem") || die "can't read the CA bundle's date"
+[ "$CA_AGE" -le 120 ] || die "the CA bundle is $CA_AGE days old: run tls/update-cacert.sh, rebuild tls/ and commit"
 NEWEST=$($PY "$HERE/release/appcast.py" newest "$P/appcast.xml")
 [ "$BUILD" -gt "$NEWEST" ] || die "build $BUILD isn't newer than the appcast's newest ($NEWEST)"
-echo "ok: committed and pushed, key matches, v$VERSION is new, build $BUILD > $NEWEST"
+echo "ok: committed and pushed, key matches, v$VERSION is new, build $BUILD > $NEWEST, CA bundle $CA_AGE days old"
 
 # --- 2 ----------------------------------------------------------------------------
 if [ $TESTS = 1 ]; then

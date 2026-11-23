@@ -78,6 +78,22 @@ static void selectRow (NSTableView *t, int r) {
     NSString *s = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
     return s != nil && [s rangeOfString:text].location != NSNotFound;
 }
+/* The widget's cover: nowplaying.json names a cover file in the support folder, and it
+ * must hold song n's art ($FAKE_ART_DIR/art<n>.png, which the fake sends as coverArt). */
+- (BOOL)widgetArt:(NSString *)np isSong:(int)n {
+    NSString *s = [NSString stringWithContentsOfFile:np encoding:NSUTF8StringEncoding error:NULL];
+    NSRange r = s ? [s rangeOfString:@"\"art\": \""] : NSMakeRange (NSNotFound, 0);
+    const char *dir = getenv ("FAKE_ART_DIR");
+    NSString *name;
+    NSData *have, *want;
+    if (r.location == NSNotFound || dir == NULL) return NO;
+    name = [s substringFromIndex:NSMaxRange (r)];
+    name = [name substringToIndex:[name rangeOfString:@"\""].location];
+    if ([name length] == 0) return NO;
+    have = [NSData dataWithContentsOfFile:[[PPBEngine defaultSupportDirectory] stringByAppendingPathComponent:name]];
+    want = [NSData dataWithContentsOfFile:[NSString stringWithFormat:@"%s/art%d.png", dir, n]];
+    return have != nil && [have isEqualToData:want];
+}
 - (int)flowRows { return [[flow valueForKey:@"rows"] count]; }
 - (NSString *)panelQuestion { return [actionPanel valueForKey:@"question"]; }
 
@@ -103,6 +119,19 @@ static void selectRow (NSTableView *t, int r) {
     expect ("widget: play", WAIT (!paused && [self nowPlaying:np has:@"\"paused\": false"], 10));
     [[NSTask launchedTaskWithLaunchPath:ctl arguments:[NSArray arrayWithObject:@"next"]] waitUntilExit];
     expect ("widget: next song", WAIT ([self nowPlaying:np has:@"\"title\": \"Song 2\""], 10));
+    expect ("widget: song 2's cover", WAIT ([self widgetArt:np isSong:2], 10));
+
+    /* With the main window closed, the widget still gets each new song's cover (song
+     * 4 reuses song 2's cover file name). */
+    [window performClose:nil];
+    expect ("widget: main window closed", ![window isVisible]);
+    [[NSTask launchedTaskWithLaunchPath:ctl arguments:[NSArray arrayWithObject:@"next"]] waitUntilExit];
+    expect ("widget, window closed: song 3 and its cover", WAIT ([self nowPlaying:np has:@"\"title\": \"Song 3\""] &&
+                                                               [self widgetArt:np isSong:3], 10));
+    [[NSTask launchedTaskWithLaunchPath:ctl arguments:[NSArray arrayWithObject:@"next"]] waitUntilExit];
+    expect ("widget, window closed: song 4 and its cover", WAIT ([self nowPlaying:np has:@"\"title\": \"Song 4\""] &&
+                                                               [self widgetArt:np isSong:4], 10));
+    [window makeKeyAndOrderFront:nil];
 
     /* Why is this song playing? */
     [self explain:nil];

@@ -37,6 +37,9 @@ $(ENGINE):
 
 $(SPARKLE_FW):
 	$(MAKE) -C ../sparkle
+# ppc.mk's object rules only know the .m files: rebuild everything when a header
+# changes (a new ivar changes the object layout every file must agree on)
+$(foreach c,$(CPUS),$(addprefix build/$(c)/,$(OBJNAMES))): $(wildcard src/*.h)
 # the controller includes <Sparkle/Sparkle.h>
 $(foreach c,$(CPUS),build/$(c)/src/PPBController.o): | $(SPARKLE_FW)
 
@@ -68,6 +71,14 @@ build/widgetshot: test/widgetshot.m
 	$(CC) $(COMMON) $(CPUFLAGS_g4) -O2 $(WARN) -o $@ $< -framework Cocoa -framework WebKit
 widget-default: build/widgetshot $(WIDGET)
 	../tools/gui-run -t 60 $$(pwd)/build/widgetshot $$(pwd)/$(WIDGET)/PowerBar.html empty $$(pwd)/widget/Default.png
+# widgettest: the widget's real page in a WebView, fed four songs whose covers reuse
+# the two cover file names; each new cover must show on the widget's canvas.
+build/widgettest: test/widgettest.m
+	$(CC) $(COMMON) $(CPUFLAGS_g4) -O2 $(WARN) -o $@ $< -framework Cocoa -framework WebKit
+widgettest: build/widgettest $(WIDGET)
+	@rm -rf build/test/widgetstate
+	../tools/gui-run -t 90 $$(pwd)/build/widgettest $$(pwd)/$(WIDGET)/PowerBar.html $$(pwd)/build/test/widgetstate
+
 # A look at the widget with a song playing (test/widget-demo), for review.
 widget-preview: build/widgetshot $(WIDGET)
 	@rm -rf build/test/widget; mkdir -p build/test/widget
@@ -115,9 +126,13 @@ uitest: $(BUNDLE)
 	@rm -rf build/test/ui; mkdir -p build/test/ui/support build/test/ui/Widgets
 	cp -R $(WIDGET) build/test/ui/Widgets/
 	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 0" build/test/ui/Widgets/PowerBar.wdgt/Info.plist
+	@# a different cover for each song (the icon at different sizes), sent as file:// coverArt
+	mkdir -p build/test/ui/art
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12; do sips -z $$((40 + i * 4)) $$((40 + i * 4)) icon/PowerBar.png \
+	  --out build/test/ui/art/art$$i.png > /dev/null 2>&1; done
 	../tools/gui-run -t 300 /usr/bin/env PPB_ENGINE=$$(pwd)/test/fake-pianobar-full \
 	  PPB_SUPPORT_DIR=$$(pwd)/build/test/ui/support FAKE_LOG=$$(pwd)/build/test/ui/fake.log \
-	  PPB_WIDGETS_DIR=$$(pwd)/build/test/ui/Widgets \
+	  PPB_WIDGETS_DIR=$$(pwd)/build/test/ui/Widgets FAKE_ART_DIR=$$(pwd)/build/test/ui/art \
 	  $(BUNDLE)/Contents/MacOS/$(PRODUCT) --uitest $$(pwd)/build/test/ui
 	@# every Shuffle box was flipped: Jazz Radio out, the other four in
 	@grep -q "^mix: Miles Davis Radio,Renamed Radio,Rock Radio,Shared 12345$$" build/test/ui/fake.log \
@@ -130,7 +145,7 @@ uitest: $(BUNDLE)
 # Then --selftest against the real Pandora. Each slice gets its own copy of the
 # bundle with thin binaries, so dyld really runs that slice for both the front end
 # and the engine (the G5 executes G3/G4 code).
-test: $(BUNDLE) enginetest uitest
+test: $(BUNDLE) enginetest uitest widgettest
 	@rm -rf build/test/support; mkdir -p build/test/support
 	PPB_SUPPORT_DIR=$$(pwd)/build/test/support ../tools/gui-run -t 120 /usr/bin/env \
 	  PPB_SUPPORT_DIR=$$(pwd)/build/test/support $(BUNDLE)/Contents/MacOS/$(PRODUCT) --selftest
@@ -155,4 +170,4 @@ run: $(BUNDLE)
 clean:
 	rm -rf build
 
-.PHONY: all test enginetest uitest widget-default widget-preview dist run clean
+.PHONY: all test enginetest uitest widgettest widget-default widget-preview dist run clean

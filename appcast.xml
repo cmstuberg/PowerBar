@@ -6,6 +6,28 @@
     <description>PowerBar updates</description>
     <language>en</language>
     <item>
+      <title>PowerBar 0.8</title>
+      <pubDate>Mon, 23 Nov 2026 23:50:27 GMT</pubDate>
+      <sparkle:minimumSystemVersion>10.4</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+<h3>PowerBar 0.8</h3>
+<ul>
+<li><b>The Dashboard widget shows every new song's cover.</b> From the third song on,
+it could show an earlier song's cover instead, which was easiest to see with
+PowerBar's window closed.</li>
+<li>PowerBar updates the installed widget when 0.8 starts. If the widget is open in
+Dashboard at that moment, remove it and add it again (or log out and back in) to
+load the new version.</li>
+<li>Opening a feature (such as Why This Song) right after cancelling another one
+no longer sometimes picks up the cancelled feature's question.</li>
+</ul>
+      ]]></description>
+      <enclosure url="https://github.com/cmstuberg/PowerBar/releases/download/v0.8/PowerBar-0.8.zip"
+                 sparkle:version="8" sparkle:shortVersionString="0.8"
+                 type="application/octet-stream"
+                 sparkle:edSignature="ZhjAu+tTtNNuIYWnWMBWU+2whHjMtVRQrsGYS+zTwQA+I4vmjWiW2foDAgGIvS/IwcmdNR1Ft+l0imJKURTcAg==" length="22616402" />
+    </item>
+    <item>
       <title>PowerBar 0.7</title>
       <pubDate>Mon, 23 Nov 2026 22:13:15 GMT</pubDate>
       <sparkle:minimumSystemVersion>10.4</sparkle:minimumSystemVersion>

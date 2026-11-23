@@ -1,0 +1,30 @@
+# Functions allowed to contain AltiVec in a G3 (ppc/ppc750) slice because they
+# only run after a runtime CPU check, or because the "instructions" are really
+# constant tables in the text section. One extended regex per line, matched
+# against the whole symbol name (leading underscore stripped). Keep each entry
+# tied to where its gate lives. Audited against OpenSSL 3.6.5 on 2026-11-22.
+#
+# Gating: crypto/ppccap.c sets OPENSSL_ppccap_P from sysctl hw.optional.altivec
+# (Darwin). A G3 reports 0, so PPC_ALTIVEC is never set. PPC_CRYPTO207 and
+# PPC_MADD300 (POWER8/POWER9) are never set on any Mac.
+
+# --- OpenSSL: vector AES, used only if VPAES_CAPABLE = PPC_ALTIVEC (include/crypto/aes_platform.h)
+vpaes_.*
+# --- OpenSSL: ChaCha20, chacha_ppc.c picks _vsx (PPC_CRYPTO207) / _vmx (PPC_ALTIVEC)
+ChaCha20_ctr32_v[sm]x
+# --- OpenSSL: Poly1305 VSX path + its helper, poly1305_ppc.c gates on PPC_CRYPTO207
+_?poly1305_blocks_vsx
+_?poly1305_mul
+# --- OpenSSL: POWER8 GHASH (gcm128.c gates on PPC_CRYPTO207)
+gcm_(init|gmult|ghash)_p8
+\.?gcm_ghash_p8_4x
+# --- OpenSSL: POWER8 SHA (sha_ppc.c gates on PPC_CRYPTO207)
+sha(256|512)_block_p8
+# --- OpenSSL: CPU probes, only run by ppccap.c's probing code
+OPENSSL_(altivec|madd300)_probe
+# --- Data, not code: the K256/K512 constant tables follow the final blr of the
+#     scalar SHA routines and happen to decode as vector instructions.
+sha(256|512)_block_ppc
+# --- Data, not code: aes-ppc.o opens with the LAES_Te/LAES_Td lookup tables
+#     (".long x,x" pairs) before its first symbol. Reported as "(member.o)".
+\(libcrypto-lib-aes-ppc\.o\)

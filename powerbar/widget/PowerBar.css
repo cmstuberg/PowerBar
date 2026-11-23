@@ -1,0 +1,74 @@
+/* PowerBar Dashboard widget. Mac OS X 10.4/10.5 WebKit: no CSS gradients here, the
+ * chrome and buttons are drawn on <canvas> (PowerBar.js). */
+body {
+    margin: 0;
+    width: 330px;
+    height: 124px;
+    font-family: "Lucida Grande", sans-serif;
+    color: #fff;
+    -webkit-user-select: none;
+    cursor: default;
+}
+
+#chrome { position: absolute; left: 0; top: 0; }
+
+#art {
+    position: absolute;
+    left: 20px;
+    top: 18px;
+    cursor: pointer;
+}
+
+#playing, #idle { position: absolute; left: 116px; top: 16px; width: 198px; height: 92px; }
+
+.line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.7);
+}
+#title  { font-size: 13px; font-weight: bold; line-height: 17px; }
+#artist { font-size: 11px; line-height: 15px; color: #d4dbe8; }
+#album  { font-size: 10px; line-height: 14px; color: #8d97ab; }
+
+#track {
+    position: absolute;
+    left: 0;
+    top: 53px;
+    width: 152px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.14);
+    -webkit-border-radius: 2px;
+}
+#fill {
+    width: 0;
+    height: 4px;
+    background: #4f8fe0;
+    -webkit-border-radius: 2px;
+    -webkit-box-shadow: 0 0 4px rgba(90, 160, 255, 0.8);
+}
+#time {
+    position: absolute;
+    right: 0;
+    top: 48px;
+    font-size: 10px;
+    color: #aab3c5;
+    text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.7);
+}
+
+#buttons { position: absolute; left: 0; top: 64px; }
+#buttons canvas { margin-right: 6px; cursor: pointer; }
+
+#idle { display: none; }
+#idle-text { font-size: 12px; font-weight: bold; margin-top: 18px; text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.7); }
+#open {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 3px 12px;
+    font-size: 11px;
+    color: #fff;
+    background: #2f6db5;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    -webkit-border-radius: 10px;
+    cursor: pointer;
+}

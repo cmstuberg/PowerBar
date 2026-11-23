@@ -1,0 +1,275 @@
+#!/usr/bin/perl
+# A scripted pianobar with every feature, for the app's --uitest. Prompts, lists,
+# messages and events are worded and formatted exactly like pianobar 2024.12.21
+# with PowerBar's config (see ../../pianobar/src/.../ui_act.c). It keeps a
+# small station list and logs every key and answer to $FAKE_LOG.
+use strict;
+use IO::Select;
+$| = 1;
+my $C = "\e[2K";
+my $sel = IO::Select->new (\*STDIN);
+open (my $log, ">>", $ENV{FAKE_LOG} || "/dev/null");
+select ((select ($log), $| = 1)[0]);
+
+my @stations = (
+    { name => "Jazz Radio", q => 1 },
+    { name => "QuickMix",   Q => 1 },
+    { name => "Rock Radio", q => 0 },
+);
+my $current = "Rock Radio";
+my $filter = 0;
+my ($song, $elapsed) = (0, 0);
+
+sub sorted { return sort { lc ($a->{name}) cmp lc ($b->{name}) } @stations; }
+sub key {
+    my $c;
+    sysread (STDIN, $c, 1) == 1 or exit 0;
+    print $log "key '$c'\n";
+    return $c;
+}
+sub line {
+    my ($s, $c) = ("", "");
+    while (1) {
+        sysread (STDIN, $c, 1) == 1 or exit 0;
+        last if $c eq "\n";
+        $s .= $c;
+    }
+    print $log "line '$s'\n";
+    print "$s\n";
+    return $s;
+}
+sub ask  { print "${C}PPB:ASK $_[0]"; }
+sub info { print "${C}PPB:INFO $_[0]\n"; }
+sub err  { print "${C}PPB:ERR $_[0]\n"; }
+sub list { print "${C}PPB:LIST $_[0]\n"; }
+sub event {
+    my ($type, %kv) = @_;
+    my @s = sorted ();
+    print "PPB:EVENT $type\n";
+    $kv{pRet} = 1 unless defined $kv{pRet};
+    $kv{wRet} = 0;
+    $kv{stationName} = $current;
+    $kv{stationCount} = scalar @s;
+    $kv{"station$_"} = $s[$_]{name} for 0 .. $#s;
+    print map { "$_=$kv{$_}\n" } sort keys %kv;
+    print "PPB:END\n";
+}
+sub station_list {
+    my @s = sorted ();
+    for my $i (0 .. $#s) {
+        my $f = ($s[$i]{q} ? "q" : " ") . ($s[$i]{Q} ? "Q" : " ") . ($s[$i]{S} ? "S" : " ");
+        list (sprintf ("%2d) %s %s", $i, $f, $s[$i]{name}));
+    }
+    return @s;
+}
+sub start_song {
+    $song++; $elapsed = 0;
+    event ("songstart", title => "Song $song", artist => "Artist $song", album => "Album",
+           songDuration => 180, rating => 0, titleNext0 => "Song " . ($song + 1),
+           artistNext0 => "Artist " . ($song + 1));
+}
+sub add_station { push @stations, { name => $_[0], q => 0 }; }
+
+sub search {     # BarUiSelectMusicId; returns 1 if something was picked
+    my $q = line ();
+    return 0 if $q eq "";
+    info ("Searching... Ok.");
+    print "${C}\r";
+    ask ("Is this an [a]rtist or [t]rack name? ");
+    my $k = key ();
+    if ($k eq "a") {
+        list (" 0) Miles Davis"); list (" 1) Miles Davis Quintet");
+        ask ("Select artist: ");
+    } elsif ($k eq "t") {
+        list (" 0) Miles Davis - So What"); list (" 1) Miles Davis - Blue in Green");
+        ask ("Select song: ");
+    } else { return 0; }
+    my $i = line ();
+    return 0 if $i eq "";
+    return $k eq "a" ? "Miles Davis" : "So What";
+}
+
+print "Welcome to pianobar (2024.12.21)! Press ? for a list of commands.\n";
+print "${C}PPB:ASK Email: $ENV{USER}\n";
+ask ("Password: ");
+line ();
+print "\n";
+info ("Login... Ok.");
+event ("userlogin");
+info ("Get stations... Ok.");
+event ("usergetstations");
+print "${C}PPB:PLAY Station \"$current\" (1)\n";
+start_song ();
+
+while (1) {
+    if (!$sel->can_read (1)) {
+        $elapsed++;
+        print "${C}PPB:TIME " . sprintf ("%02d:%02d", $elapsed / 60, $elapsed % 60) . "/03:00\r";
+        next;
+    }
+    my $k = key ();
+    if ($k eq "q") { exit 0; }
+    elsif ($k eq "n") { start_song (); }
+    elsif ($k =~ /^[SP]$/) { }
+    elsif ($k eq "+") { info ("Loving song... Ok."); event ("songlove", rating => 1); }
+    elsif ($k eq "-") { info ("Banning song... Ok."); event ("songban"); start_song (); }
+    elsif ($k eq "t") { info ("Putting song on shelf... Ok."); event ("songshelf"); start_song (); }
+    elsif ($k eq "e") {
+        info ("Receiving explanation... Ok.");
+        info ("We're playing this track because it features a laid-back groove and mellow piano.");
+        event ("songexplain");
+    }
+    elsif ($k eq "b") {
+        ask ("Bookmark [s]ong or [a]rtist? ");
+        my $c = key (); print $c;
+        if ($c eq "s") { info ("Bookmarking song... Ok."); event ("songbookmark"); }
+        elsif ($c eq "a") { info ("Bookmarking artist... Ok."); event ("artistbookmark"); }
+    }
+    elsif ($k eq "v") {
+        ask ("Create station from [s]ong or [a]rtist? ");
+        my $c = key (); print $c;
+        if ($c =~ /^[sa]$/) {
+            info ("Creating station... Ok.");
+            add_station ($c eq "s" ? "Song $song Radio" : "Artist $song Radio");
+            event ("stationcreate");
+        }
+    }
+    elsif ($k eq "c") {
+        ask ("Create station from artist or title: ");
+        my $r = search ();
+        if ($r) { info ("Creating station... Ok."); add_station ("$r Radio"); event ("stationcreate"); }
+    }
+    elsif ($k eq "a") {
+        ask ("Add artist or title to station: ");
+        my $r = search ();
+        if ($r) { info ("Adding music to station... Ok."); event ("stationaddmusic"); }
+    }
+    elsif ($k eq "j") {
+        ask ("Station id: ");
+        my $id = line ();
+        if ($id ne "") { info ("Adding shared station... Ok."); add_station ("Shared $id"); event ("stationaddshared"); }
+    }
+    elsif ($k eq "r") {
+        ask ("New name: ");
+        my $n = line ();
+        if ($n ne "") {
+            info ("Renaming station... Ok.");
+            for (@stations) { $_->{name} = $n if $_->{name} eq $current; }
+            $current = $n;
+            event ("stationrename");
+        }
+    }
+    elsif ($k eq "d") {
+        ask ("Really delete \"$current\"? [yN] ");
+        my $c = key ();
+        if ($c eq "y") {
+            info ("Deleting station... Ok.");
+            @stations = grep { $_->{name} ne $current } @stations;
+            event ("stationdelete");
+            $current = "";
+        }
+    }
+    elsif ($k eq "g") {
+        info ("Receiving genre stations... Ok.");
+        event ("stationfetchgenre");
+        list (" 0) Jazz"); list (" 1) Rock");
+        ask ("Select category: ");
+        my $i = line ();
+        next if $i eq "";
+        list (" 0) Bebop"); list (" 1) Cool Jazz");
+        ask ("Select genre: ");
+        $i = line ();
+        next if $i eq "";
+        my $g = $i eq "0" ? "Bebop" : "Cool Jazz";
+        info ("Adding genre station \"$g\"... Ok.");
+        add_station ("$g Radio");
+        event ("stationaddgenre");
+    }
+    elsif ($k eq "=") {
+        info ("Fetching station info... Ok.");
+        event ("stationfetchinfo");
+        ask ("Delete [a]rtist/[s]ong seeds or [f]eedback? Manage [m]ode? ");
+        my $c = key ();
+        if ($c eq "a") {
+            list (" 0) Miles Davis"); list (" 1) John Coltrane");
+            ask ("Select artist: ");
+            my $i = line ();
+            if ($i ne "") { info ("Deleting artist seed... Ok."); event ("stationdeleteartistseed"); }
+        } elsif ($c eq "s") {
+            list (" 0) Miles Davis - So What");
+            ask ("Select song: ");
+            my $i = line ();
+            if ($i ne "") { info ("Deleting song seed... Ok."); event ("stationdeletesongseed"); }
+        } elsif ($c eq "f") {
+            list (" 0) Miles Davis - So What \xe2\x99\xa5"); list (" 1) Kenny G - Songbird (banned)");
+            ask ("Select song: ");
+            my $i = line ();
+            if ($i ne "") { info ("Deleting feedback... Ok."); event ("stationdeletefeedback"); }
+        } elsif ($c eq "m") {
+            info ("Fetching modes... Ok.");
+            event ("stationgetmodes");
+            list (" 0) My Station: Plays the full range of music on your station (active)");
+            list (" 1) Deep Cuts: Plays lesser-known tracks");
+            ask ("Pick a new mode: ");
+            my $i = line ();
+            if ($i ne "") {
+                my $m = $i eq "0" ? "My Station" : "Deep Cuts";
+                info ("Selecting mode \"$m\"... Ok.");
+                event ("stationsetmode");
+                start_song ();
+            }
+        }
+    }
+    elsif ($k eq "s") {
+        my @s = station_list ();
+        ask ("Select station: ");
+        my $i = line ();
+        if ($i ne "" && $i < @s) { $current = $s[$i]{name}; print "${C}PPB:PLAY Station \"$current\"\n"; start_song (); }
+    }
+    elsif ($k eq "x") {
+        my ($qm) = grep { $_->{Q} } @stations;
+        if ($current ne $qm->{name}) { err ("Please select a QuickMix station first."); next; }
+        while (1) {
+            my @s = station_list ();
+            ask ("Toggle QuickMix for station: ");
+            my $i = line ();
+            last if $i eq "";
+            $s[$i]{q} = !$s[$i]{q} if $i < @s;
+        }
+        info ("Setting QuickMix stations... Ok.");
+        event ("stationquickmixtoggle");
+        print $log "mix: " . join (",", map { $_->{name} } grep { $_->{q} } sorted ()) . "\n";
+    }
+    elsif ($k eq "h") {
+        list (" 0) Artist 1 - Song 1"); list (" 1) Artist 2 - Song 2");
+        ask ("Select song: ");
+        my $i = line ();
+        next if $i eq "";
+        ask ("What to do with this song? ");
+        my $c = key ();
+        if ($c eq "+") { info ("Loving song... Ok."); event ("songlove", rating => 1); }
+    }
+    elsif ($k eq "!") {
+        info ("Retrieving settings... Ok.");
+        event ("settingsget");
+        list (" 0) Username (nobody\@example.invalid)"); list (" 1) Password (*****)");
+        list (" 2) Explicit content filter (" . ($filter ? "yes" : "no") . ")");
+        my $modified = 0;
+        while (1) {
+            ask ("Change setting: ");
+            my $i = line ();
+            last if $i eq "";
+            if ($i eq "2") {
+                ask ("Enable explicit content filter? [yn] ");
+                my $c = key ();
+                $filter = $c eq "y" ? 1 : 0;
+                $modified = 1;
+            }
+        }
+        if ($modified) {
+            info ("Changing settings... Ok.");
+            event ("settingschange");
+            print $log "filter: $filter\n";
+        }
+    }
+}

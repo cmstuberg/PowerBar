@@ -1,0 +1,76 @@
+--- a/SUDSAVerifier.m
++++ b/SUDSAVerifier.m
+@@ -86,18 +86,12 @@
+ 		BIO *bio;
+ 		if((bio = BIO_new_mem_buf(key, (int)keylen)))
+ 		{
+-			DSA* dsa_key = 0;
+-			if(PEM_read_bio_DSA_PUBKEY(bio, &dsa_key, NULL, NULL))
++			// OpenSSL 3: read the public key, then insist that it's DSA.
++			pkey = PEM_read_bio_PUBKEY(bio, NULL, NULL, NULL);
++			if (pkey && EVP_PKEY_get_base_id(pkey) != EVP_PKEY_DSA)
+ 			{
+-				if((pkey = EVP_PKEY_new()))
+-				{
+-					if(EVP_PKEY_assign_DSA(pkey, dsa_key) != 1)
+-					{
+-						DSA_free(dsa_key);
+-						EVP_PKEY_free(pkey);
+-						pkey = NULL;
+-					}
+-				}
++				EVP_PKEY_free(pkey);
++				pkey = NULL;
+ 			}
+ 			BIO_free(bio);
+ 		}
+@@ -124,6 +118,7 @@
+ 	pkeyString = [pkeyTrimmedLines componentsJoinedByString:@"\n"]; // Put them back together.
+ 
+ 	NSMutableData* pkeyData = [[[pkeyString dataUsingEncoding:NSUTF8StringEncoding] mutableCopy] autorelease];
++	[pkeyData appendBytes:"" length:1]; // load_dsa_key takes a C string
+ 	void *pkeyBytes = [pkeyData mutableBytes];
+ 	EVP_PKEY* pkey = NULL;
+ 	pkey = load_dsa_key(pkeyBytes);
+@@ -131,26 +126,27 @@
+ 
+ 	// Now, the signature is in base64; we have to decode it into a binary stream.
+ 	NSMutableData* signatureData = [[[encodedSignature dataUsingEncoding:NSUTF8StringEncoding] mutableCopy] autorelease];
++	[signatureData appendBytes:"" length:1]; // b64decode takes a C string
+ 	void *signature = [signatureData mutableBytes];
+ 	long length = b64decode(signature); // Decode the signature in-place and get the new length of the signature string.
+-	
++
+ 	// We've got the signature, now get the file data.
+ 	NSData *pathData = [NSData dataWithContentsOfFile:path];
+-	if (!pathData) { return NO; }
+-	
+-	// Hash the file with SHA-1.
+-	unsigned char md[SHA_DIGEST_LENGTH];
+-	SHA1([pathData bytes], [pathData length], md);
+-	
+-	// Actually verify the signature on the file.
+-	EVP_MD_CTX ctx;
+-	if(EVP_VerifyInit(&ctx, EVP_dss1()) == 1) // We're using DSA keys.
++
++	// The signature is DSA over SHA-1(file), with SHA-1 again as the signing
++	// digest (what sign_update.rb's "dgst -dss1 -sign" made). Same check, OpenSSL 3 API.
++	unsigned char md[EVP_MAX_MD_SIZE];
++	unsigned int mdlen = 0;
++	EVP_MD_CTX *ctx = NULL;
++	if (pathData && length > 0 && length <= 0x7FFFFFFF
++		&& EVP_Digest([pathData bytes], [pathData length], md, &mdlen, EVP_sha1(), NULL) == 1
++		&& (ctx = EVP_MD_CTX_new()) != NULL
++		&& EVP_DigestVerifyInit(ctx, NULL, EVP_sha1(), NULL, pkey) == 1
++		&& EVP_DigestVerifyUpdate(ctx, md, mdlen) == 1)
+ 	{
+-		EVP_VerifyUpdate(&ctx, md, SHA_DIGEST_LENGTH);
+-		if ((length < 0) || (length > 0x7FFFFFFF)) { return NO; } // test before cast below
+-		result = (EVP_VerifyFinal(&ctx, signature, (unsigned int)length, pkey) == 1);
++		result = (EVP_DigestVerifyFinal(ctx, signature, (size_t)length) == 1);
+ 	}
+-	
++	EVP_MD_CTX_free(ctx);
+ 	EVP_PKEY_free(pkey);
+ 	
+ 	// Prevent these from being collected earlier than we want (our only reference is an inner pointer).

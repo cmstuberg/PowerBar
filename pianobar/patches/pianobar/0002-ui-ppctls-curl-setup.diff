@@ -1,0 +1,27 @@
+ui: apply the TLS stack's defaults (CA bundle, TLS 1.2+, verification) to API calls.
+
+ppctls_curl_setup() finds the CA bundle inside the app (or next to the binary), so
+no ca_bundle setting is needed. A ca_bundle in the config still overrides it,
+because it is applied afterwards.
+
+--- a/src/ui.c	2026-11-22 21:16:55.000000000 -0700
++++ b/src/ui.c	2026-11-22 21:16:55.000000000 -0700
+@@ -40,6 +40,7 @@
+ #include <sys/wait.h>
+ 
+ #include "ui.h"
++#include "ppctls.h"
+ #include "debug.h"
+ #include "ui_readline.h"
+ 
+@@ -219,6 +220,10 @@
+ 
+ 	curl_easy_reset (http);
+ 	CURLcode httpret;
++	httpret = ppctls_curl_setup (http);
++	if (httpret != CURLE_OK) {
++		BarUiMsg (settings, MSG_ERR, "No CA bundle found for TLS.\n");
++	}
+ 	setAndCheck (CURLOPT_URL, url);
+ 	setAndCheck (CURLOPT_USERAGENT, PACKAGE "-" VERSION);
+ 	setAndCheck (CURLOPT_POSTFIELDS, req->postData);

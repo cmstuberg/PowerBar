@@ -1,0 +1,17 @@
+json-c 0.19: drop a repeated typedef so C99 compilers (Apple gcc-4.0) build it.
+Repeating a typedef is only valid from C11 on. json_pointer_set_cb is already
+declared in json_pointer.h, which json_pointer.c includes before this header.
+
+--- a/json_pointer_private.h
++++ b/json_pointer_private.h
+@@ -32,8 +32,8 @@
+ // replaced by json_pointer_set_cb
+ // typedef int(*json_pointer_array_set_cb)(json_object *parent, size_t idx,
+ //                                         json_object *value, void *priv);
+-typedef int(*json_pointer_set_cb)(json_object *parent, const char *key, size_t idx,
+-                                    json_object *value, void *priv);
++// json_pointer_set_cb is typedef'd in json_pointer.h. Repeating a typedef is
++// only valid from C11 on, and C99 compilers reject it.
+
+ // replaced by json_pointer_set_with_cb
+ // int json_pointer_set_with_array_cb(struct json_object **obj, const char *path,

@@ -1,0 +1,20 @@
+ui_readline: exit when stdin closes, if PIANOBAR_EXIT_ON_EOF is set.
+
+PowerBar drives pianobar through a pipe on stdin. If the app goes away
+without saying "q" (crash, force quit), the pipe closes and pianobar would keep
+playing with nothing to control it. With the variable set, EOF on stdin quits.
+Without it, behaviour is unchanged.
+
+--- a/src/ui_readline.c	2026-11-22 21:24:52.000000000 -0700
++++ b/src/ui_readline.c	2026-11-22 21:24:52.000000000 -0700
+@@ -104,6 +104,10 @@
+ 			 * available
+ 			 * FIXME: ugly */
+ 			if (curFd == STDIN_FILENO) {
++				if (getenv ("PIANOBAR_EXIT_ON_EOF") != NULL) {
++					/* our controlling app is gone */
++					exit (0);
++				}
+ 				FD_CLR (curFd, &input->set);
+ 			}
+ 			continue;

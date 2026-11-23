@@ -1,0 +1,18 @@
+--- a/include/internal/numbers.h	2026-11-22 18:21:15.000000000 -0700
++++ b/include/internal/numbers.h	2026-11-22 18:21:15.000000000 -0700
+@@ -105,8 +105,13 @@
+ #define OSSL_UINTMAX_MAX __MAXUINT__(ossl_uintmax_t)
+ #endif
+ 
+-/* Fix for cross compiling 64-bit PowerPC on OS X 10.4 */
+-#if defined(__APPLE__) && defined(_ARCH_PPC64)
++/*
++ * Fix for cross compiling 64-bit PowerPC on OS X 10.4.
++ * Test the ABI (__LP64__), not _ARCH_PPC64: GCC also defines _ARCH_PPC64 for
++ * 32-bit code tuned for a 64-bit CPU (-arch ppc970 / -mcpu=G5), where size_t is
++ * 32 bits, and a 64-bit SIZE_MAX there silently breaks overflow checks.
++ */
++#if defined(__APPLE__) && defined(_ARCH_PPC64) && defined(__LP64__)
+ #ifdef SIZE_MAX
+ #undef SIZE_MAX
+ #endif

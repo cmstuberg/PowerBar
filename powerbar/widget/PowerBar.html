@@ -1,0 +1,33 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<title>PowerBar</title>
+<link rel="stylesheet" href="PowerBar.css" type="text/css">
+<script type="text/javascript" src="PowerBar.js" charset="utf-8"></script>
+</head>
+<body onload="setup();">
+  <canvas id="chrome" width="330" height="124"></canvas>
+  <canvas id="art" width="84" height="84" title="Show PowerBar" onclick="openApp();"></canvas>
+
+  <div id="playing">
+    <div id="title" class="line"></div>
+    <div id="artist" class="line"></div>
+    <div id="album" class="line"></div>
+    <div id="track"><div id="fill"></div></div>
+    <div id="time"></div>
+    <div id="buttons">
+      <canvas id="b-play"  width="28" height="28" title="Play/Pause"></canvas>
+      <canvas id="b-next"  width="28" height="28" title="Next Song"></canvas>
+      <canvas id="b-love"  width="28" height="28" title="Love"></canvas>
+      <canvas id="b-ban"   width="28" height="28" title="Ban"></canvas>
+      <canvas id="b-tired" width="28" height="28" title="Tired of This Song"></canvas>
+    </div>
+  </div>
+
+  <div id="idle">
+    <div id="idle-text">PowerBar isn't running.</div>
+    <div id="open" onclick="openApp();">Open PowerBar</div>
+  </div>
+</body>
+</html>

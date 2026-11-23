@@ -1,0 +1,54 @@
+player: fetch the audio stream through libcurl instead of ffmpeg's own http/tls.
+
+PowerBar builds ffmpeg without network protocols. Songs are read through a
+custom AVIOContext (src-ppb/curlio.c) on libcurl, so the stream uses the same TLS
+stack and CA bundle as the API calls, with certificate verification on (ffmpeg's tls
+protocol doesn't verify by default). curlio buffers ahead, resumes dropped
+connections with Range requests, and reports ECONNRESET so the existing retry
+logic still works.
+
+--- a/src/player.c	2026-11-22 21:16:55.000000000 -0700
++++ b/src/player.c	2026-11-22 21:16:55.000000000 -0700
+@@ -59,6 +59,7 @@
+ #include <libavutil/frame.h>
+ 
+ #include "player.h"
++#include "curlio.h"
+ #include "debug.h"
+ #include "ui.h"
+ #include "ui_types.h"
+@@ -204,7 +205,22 @@
+ 	av_dict_set (&options, "timeout", timeoutStr, 0);
+ 
+ 	assert (player->url != NULL);
+-	if ((ret = avformat_open_input (&player->fctx, player->url, NULL, &options)) < 0) {
++	/* fetch through libcurl (our TLS stack), not ffmpeg's http */
++	AVIOContext *pb = BarCurlIoOpen (player->url, player->settings->timeout,
++			intCb, player, &ret);
++	if (pb == NULL) {
++		avformat_free_context (player->fctx);
++		player->fctx = NULL;
++		av_dict_free (&options);
++		softfail ("Unable to open audio file");
++	}
++	player->fctx->pb = pb;
++	player->fctx->flags |= AVFMT_FLAG_CUSTOM_IO;
++	ret = avformat_open_input (&player->fctx, player->url, NULL, &options);
++	av_dict_free (&options);
++	if (ret < 0) {
++		/* avformat_open_input freed fctx, but not our custom pb */
++		BarCurlIoClose (&pb);
+ 		softfail ("Unable to open audio file");
+ 	}
+ 
+@@ -518,7 +534,10 @@
+ 		player->cctx = NULL;
+ 	}
+ 	if (player->fctx != NULL) {
++		/* custom I/O: avformat_close_input leaves pb to us */
++		AVIOContext *pb = player->fctx->pb;
+ 		avformat_close_input (&player->fctx);
++		BarCurlIoClose (&pb);
+ 	}
+ }
+ 

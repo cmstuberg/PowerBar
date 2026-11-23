@@ -1,0 +1,77 @@
+--- a/SUAppcast.m
++++ b/SUAppcast.m
+@@ -8,6 +8,7 @@
+ 
+ #import "Sparkle.h"
+ #import "SUAppcast.h"
++#import "SUCurlURLProtocol.h" // ppc: loads through our curl (sparkle/src-ppc)
+ 
+ @interface NSXMLElement (SUAppcastExtensions)
+ - (NSDictionary *)attributesAsDictionary;
+@@ -51,6 +52,7 @@
+     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:30.0];
+     if (userAgentString)
+         [request setValue:userAgentString forHTTPHeaderField:@"User-Agent"];
++    SUCurlTagRequest(request);
+             
+     download = [[NSURLDownload alloc] initWithRequest:request delegate:self];
+ }
+--- a/SUBasicUpdateDriver.m
++++ b/SUBasicUpdateDriver.m
+@@ -14,6 +14,7 @@
+ #import "SUStandardVersionComparator.h"
+ #import "SUUnarchiver.h"
+ #import "SUBinaryDeltaCommon.h"
++#import "SUCurlURLProtocol.h" // ppc: loads through our curl (sparkle/src-ppc)
+ 
+ @implementation SUBasicUpdateDriver
+ 
+@@ -136,6 +137,7 @@
+ {
+ 	NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[updateItem fileURL]];
+ 	[request setValue:[updater userAgentString] forHTTPHeaderField:@"User-Agent"];
++	SUCurlTagRequest(request);
+ 	download = [[NSURLDownload alloc] initWithRequest:request delegate:self];
+ }
+ 
+--- a/SUUpdateAlert.m
++++ b/SUUpdateAlert.m
+@@ -10,6 +10,7 @@
+ 
+ #import "SUHost.h"
+ #import <WebKit/WebKit.h>
++#import "SUCurlURLProtocol.h" // ppc: loads through our curl (sparkle/src-ppc)
+ 
+ @implementation SUUpdateAlert
+ 
+@@ -68,6 +69,7 @@
+ 	[[releaseNotesView preferences] setDefaultFontSize:(int)[NSFont systemFontSizeForControlSize:NSSmallControlSize]];
+ 	[releaseNotesView setFrameLoadDelegate:self];
+ 	[releaseNotesView setPolicyDelegate:self];
++	[releaseNotesView setResourceLoadDelegate:self]; // images etc. through curl too
+ 	
+ 	// Stick a nice big spinner in the middle of the web view until the page is loaded.
+ 	NSRect frame = [[releaseNotesView superview] frame];
+@@ -86,7 +88,7 @@
+ 		}
+ 		else
+ 		{
+-			[[releaseNotesView mainFrame] loadRequest:[NSURLRequest requestWithURL:[updateItem releaseNotesURL] cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:30]];
++			[[releaseNotesView mainFrame] loadRequest:SUCurlTaggedRequest([NSURLRequest requestWithURL:[updateItem releaseNotesURL] cachePolicy:NSURLRequestReloadIgnoringCacheData timeoutInterval:30])];
+ 		}
+ 	}
+ 	else
+@@ -171,6 +173,13 @@
+     return [NSString stringWithFormat:SULocalizedString(@"%@ %@ is now available--you have %@. Would you like to download it now?", nil), [host name], updateItemVersion, hostVersion];
+ }
+ 
++// Every load in the release notes view (the page and its images, scripts, styles)
++// goes through our curl.
++- (NSURLRequest *)webView:(WebView *)sender resource:(id)identifier willSendRequest:(NSURLRequest *)request redirectResponse:(NSURLResponse *)redirectResponse fromDataSource:(WebDataSource *)dataSource
++{
++	return SUCurlTaggedRequest(request);
++}
++
+ - (void)webView:(WebView *)sender didFinishLoadForFrame:frame
+ {
+     if ([frame parentFrame] == nil) {

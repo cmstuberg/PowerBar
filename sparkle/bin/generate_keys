@@ -1,0 +1,62 @@
+#!/bin/sh
+# generate_keys: make the Ed25519 key pair that signs your app's updates.
+#
+#   generate_keys PRIVATE_KEY.pem      make a new key; prints the public key
+#   generate_keys -p PRIVATE_KEY.pem   print the public key of an existing key
+#
+# Put the printed public key in your app's Info.plist as SUPublicEDKey. Keep the
+# private key secret and backed up, outside your source repository: anyone who has
+# it can sign updates your users will install, and if you lose it, existing copies
+# of your app can't take updates from you any more.
+#
+# Same key format as Sparkle 2's generate_keys (raw 32-byte public key, base64), so
+# either tool's keys work with either Sparkle. Needs OpenSSL 3 or later (set
+# OPENSSL=/path/to/openssl if it isn't found).
+set -e
+
+find_openssl() {
+  here=$(cd "$(dirname "$0")" && pwd)
+  for o in "${OPENSSL:-}" "$here/../../tls/dist/bin/openssl" /opt/local/bin/openssl \
+           /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl \
+           /usr/local/bin/openssl /usr/bin/openssl; do
+    [ -n "$o" ] && [ -x "$o" ] || continue
+    case "$("$o" version 2>/dev/null)" in "OpenSSL "[3-9]*) echo "$o"; return 0 ;; esac
+  done
+  echo "generate_keys: needs OpenSSL 3 or later; set OPENSSL=/path/to/openssl" >&2
+  return 1
+}
+
+usage() {
+  echo "usage: generate_keys PRIVATE_KEY.pem | generate_keys -p PRIVATE_KEY.pem" >&2
+  exit 2
+}
+
+public_key() { # the raw 32 bytes at the end of the SubjectPublicKeyInfo, base64
+  "$OPENSSL" pkey -in "$1" -pubout -outform DER | tail -c 32 | "$OPENSSL" base64 -A
+  echo
+}
+
+check_ed25519() {
+  "$OPENSSL" pkey -in "$1" -noout -text 2>/dev/null | head -1 | grep -q "ED25519 Private-Key" \
+    || { echo "generate_keys: $1 is not an Ed25519 private key" >&2; exit 1; }
+}
+
+OPENSSL=$(find_openssl) || exit 1
+
+if [ "${1:-}" = -p ]; then
+  [ $# -eq 2 ] || usage
+  check_ed25519 "$2"
+  public_key "$2"
+  exit 0
+fi
+[ $# -eq 1 ] || usage
+case "$1" in -*) usage ;; esac
+if [ -e "$1" ]; then
+  echo "generate_keys: $1 already exists; not overwriting a key" >&2
+  exit 1
+fi
+(umask 077 && "$OPENSSL" genpkey -algorithm ed25519 -out "$1")
+check_ed25519 "$1"
+echo "Private key written to $1. Keep it secret and backed up; never commit it." >&2
+echo "Public key, for your app's Info.plist as SUPublicEDKey:" >&2
+public_key "$1"

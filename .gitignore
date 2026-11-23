@@ -1,0 +1,12 @@
+build/
+*.o
+.DS_Store
+tls/src/
+tls/dist/
+av/src/
+av/dist/
+json-c/src/
+json-c/dist/
+pianobar/src/
+powerbar/build/
+sparkle/src/

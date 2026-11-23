@@ -1,0 +1,25 @@
+--- a/lib/vtls/vtls_scache.c	2026-11-22 19:07:26.000000000 -0700
++++ b/lib/vtls/vtls_scache.c	2026-11-22 19:07:26.000000000 -0700
+@@ -83,6 +83,14 @@
+     *is_local = TRUE;
+ #elif defined(HAVE_REALPATH)
+     if(path[0] != '/') {
++#ifdef PATH_MAX
++      /* realpath(path, NULL) is POSIX.1-2008; older systems (e.g. Mac OS X
++       * before 10.6) crash on a NULL buffer, so pass one when we can. */
++      char resolved[PATH_MAX];
++      char *abspath = realpath(path, resolved);
++      if(abspath)
++        return curlx_dyn_addf(buf, ":%s-%s", name, abspath);
++#else
+       char *abspath = realpath(path, NULL);
+       if(abspath) {
+         CURLcode result = curlx_dyn_addf(buf, ":%s-%s", name, abspath);
+@@ -90,6 +98,7 @@
+         free(abspath); /* allocated by libc, free without memdebug */
+         return result;
+       }
++#endif
+       *is_local = TRUE;
+     }
+ #endif

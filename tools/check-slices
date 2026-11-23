@@ -1,0 +1,70 @@
+#!/bin/sh
+# check-slices FILE...   (objects, static .a archives, executables, dylibs)
+# Lists each ppc slice and enforces the per-CPU rules:
+#   ppc / ppc750 (G3-class) : no AltiVec, except in functions listed in
+#                             tools/altivec-runtime-ok.txt (code that is only
+#                             reached after a runtime AltiVec check)
+#   ppc7400 (G4), ppc970 (G5), ppc64 : AltiVec allowed
+# Warns (doesn't fail) when there's no G3 slice: G3 support is wanted
+# wherever possible but is secondary.
+#
+# The AltiVec scan only covers objects (.o) and static archives (.a), where
+# instructions can be pinned to the right symbol. In linked executables and
+# dylibs, gcc-4.0 jump tables and other data sit inline in __text and can decode
+# as vector instructions, so for those only the slice subtypes are checked.
+# Libraries get scanned when they're built (tls/build.sh), and an app's own
+# objects when it's built (mk/ppc.mk).
+HERE=$(cd "$(dirname "$0")" && pwd)
+ALLOW=$HERE/altivec-runtime-ok.txt
+AV='^(lvx|lvxl|stvx|stvxl|lvebx|lvehx|lvewx|lvsl|lvsr|stvebx|stvehx|stvewx|mfvscr|mtvscr|dst|dstt|dstst|dststt|dss|dssall|mfvrsave|mtvrsave|v[a-z0-9]+(\.)?)$'
+# allowlist: one extended regex per line, matched against whole symbol names; # comments.
+# Passed to awk via ENVIRON, because -v would eat the regex backslashes.
+pat=$(grep -v '^[[:space:]]*\(#\|$\)' "$ALLOW" 2>/dev/null | sed 's/[[:space:]]*$//' | paste -sd'|' -)
+[ -n "$pat" ] || pat='^$'
+
+# Print "symbol count" for every function that contains AltiVec instructions.
+altivec_by_symbol() { # file arch
+  otool -arch "$2" -tv "$1" 2>/dev/null | awk -v av="$AV" '
+    # archive member header "lib.a(member.o):" -> code before its first symbol
+    /^[^ \t]*\([^ \t]*\.o\):$/ { sym = $0; sub(/^[^(]*/, "", sym); sub(/:$/, "", sym); next }
+    /^[^ \t]+:$/ { sym = substr($0, 1, length($0) - 1); next }
+    /^[0-9a-f]+[ \t]/ { if ($2 ~ av) n[sym]++ }
+    END { for (s in n) print s, n[s] }'
+}
+
+rc=0
+for f in "$@"; do
+  archs=$(lipo -info "$f" 2>/dev/null | sed -e 's/.*: //')
+  [ -n "$archs" ] || { echo "check-slices: $f: not a Mach-O" >&2; rc=1; continue; }
+  g3=no
+  scan=yes
+  first=$(echo $archs | awk '{print $1}')
+  if ! otool -arch "$first" -h "$f" 2>/dev/null | grep -q '^Archive'; then
+    ft=$(otool -arch "$first" -h "$f" 2>/dev/null | awk 'NR==4{print $5}')
+    [ "$ft" = 1 ] || scan=no      # MH_OBJECT = 1; anything else is a linked image
+  fi
+  for a in $archs; do
+    if [ $scan = no ]; then
+      case "$a" in ppc|ppc750) g3=yes ;; esac
+      echo "check-slices: $f [$a] (linked image: subtype only)"
+      continue
+    fi
+    case "$a" in
+      ppc|ppc750)
+        g3=yes
+        syms=$(altivec_by_symbol "$f" "$a")
+        bad=$(echo "$syms" | awk 'NF==2' | PAT="^($pat)\$" awk '{ s=$1; sub(/^_/, "", s); if (s !~ ENVIRON["PAT"]) print }')
+        ok=$(echo "$syms" | awk 'NF==2' | PAT="^($pat)\$" awk '{ s=$1; sub(/^_/, "", s); if (s ~ ENVIRON["PAT"]) { n++; c+=$2 } } END { if (n) print n " runtime-dispatched functions (" c " insns)" }')
+        if [ -n "$bad" ]; then
+          echo "check-slices: $f [$a]: AltiVec in a G3 slice, in functions not known to be runtime-dispatched:" >&2
+          echo "$bad" | sed 's/^/    /' >&2; rc=1
+        else echo "check-slices: $f [$a] G3-safe${ok:+ (allowed: $ok)}"; fi ;;
+      ppc7400|ppc7450|ppc970|ppc64)
+        n=$(altivec_by_symbol "$f" "$a" | awk '{c+=$2} END {print c+0}')
+        echo "check-slices: $f [$a] $n AltiVec instructions" ;;
+      *) echo "check-slices: $f [$a] (not a ppc slice)" ;;
+    esac
+  done
+  [ $g3 = yes ] || echo "check-slices: $f: warning: no G3 slice (won't run on G3)" >&2
+done
+exit $rc

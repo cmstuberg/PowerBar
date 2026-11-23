@@ -1,0 +1,7 @@
+#!/bin/sh
+# pianobar event_command for PowerBar. pianobar runs this with the event name
+# as $1 and key=value lines on stdin, and with pianobar's own stdout, which is the
+# app's pipe. Frame the event so the app can read it from the same stream.
+echo "PPB:EVENT $1"
+cat
+echo "PPB:END"

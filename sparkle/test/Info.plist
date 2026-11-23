@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>	<string>English</string>
+	<key>CFBundleExecutable</key>		<string>SparkleTest</string>
+	<key>CFBundleIdentifier</key>		<string>io.github.cmstuberg.SparkleTest</string>
+	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+	<key>CFBundleName</key>			<string>SparkleTest</string>
+	<key>CFBundlePackageType</key>		<string>APPL</string>
+	<key>CFBundleSignature</key>		<string>????</string>
+	<key>CFBundleShortVersionString</key>	<string>0.6</string>
+	<key>CFBundleVersion</key>		<string>6</string>
+	<key>LSMinimumSystemVersion</key>	<string>10.4</string>
+	<key>NSPrincipalClass</key>		<string>NSApplication</string>
+	<key>SUFeedURL</key>			<string>https://127.0.0.1:18443/appcast.xml</string>
+	<key>SUEnableAutomaticChecks</key>	<false/>
+	<!-- a published test key (RFC 8032 section 7.1, test 2), never used to sign anything real -->
+	<key>SUPublicEDKey</key>		<string>PUAXw+hDiVqStwqnTRt+vJyYLM8uxJaMwM1V8Sr0Zgw=</string>
+</dict>
+</plist>

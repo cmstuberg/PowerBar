@@ -1,0 +1,139 @@
+--- a/SUConstants.h
++++ b/SUConstants.h
+@@ -22,6 +22,7 @@
+ extern NSString *const SULastCheckTimeKey;
+ extern NSString *const SUPublicDSAKeyKey;
+ extern NSString *const SUPublicDSAKeyFileKey;
++extern NSString *const SUPublicEDKeyKey; // ppc: Ed25519, as in Sparkle 2
+ extern NSString *const SUAutomaticallyUpdateKey;
+ extern NSString *const SUAllowsAutomaticUpdatesKey;
+ extern NSString *const SUEnableAutomaticChecksKey;
+--- a/SUConstants.m
++++ b/SUConstants.m
+@@ -21,6 +21,7 @@
+ NSString *const SUExpectsDSASignatureKey = @"SUExpectsDSASignature";
+ NSString *const SUPublicDSAKeyKey = @"SUPublicDSAKey";
+ NSString *const SUPublicDSAKeyFileKey = @"SUPublicDSAKeyFile";
++NSString *const SUPublicEDKeyKey = @"SUPublicEDKey";
+ NSString *const SUAutomaticallyUpdateKey = @"SUAutomaticallyUpdate";
+ NSString *const SUAllowsAutomaticUpdatesKey = @"SUAllowsAutomaticUpdates";
+ NSString *const SUEnableSystemProfilingKey = @"SUEnableSystemProfiling";
+--- a/SUHost.h
++++ b/SUHost.h
+@@ -25,6 +25,7 @@
+ - (BOOL)isRunningOnReadOnlyVolume;
+ - (BOOL)isBackgroundApplication;
+ - (NSString *)publicDSAKey;
++- (NSString *)publicEDKey;
+ - (NSArray *)systemProfile;
+ 
+ - (id)objectForInfoDictionaryKey:(NSString *)key;
+--- a/SUHost.m
++++ b/SUHost.m
+@@ -115,6 +115,15 @@
+ 	return isElement;
+ }
+ 
++// ppc: the base64 Ed25519 public key from Info.plist (SUPublicEDKey), or nil.
++- (NSString *)publicEDKey
++{
++	NSString *key = [bundle objectForInfoDictionaryKey:SUPublicEDKeyKey];
++	if (![key isKindOfClass:[NSString class]]) { return nil; }
++	key = [key stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
++	return [key length] ? key : nil;
++}
++
+ - (NSString *)publicDSAKey
+ {
+ 	// Maybe the key is just a string in the Info.plist.
+--- a/SUAppcastItem.h
++++ b/SUAppcastItem.h
+@@ -42,6 +42,7 @@
+ - (NSURL *)releaseNotesURL;
+ - (NSURL *)fileURL;
+ - (NSString *)DSASignature;
++- (NSString *)EDSignature;
+ - (NSString *)minimumSystemVersion;
+ - (NSDictionary *)deltaUpdates;
+ - (BOOL)isDeltaUpdate;
+--- a/SUAppcastItem.m
++++ b/SUAppcastItem.m
+@@ -54,6 +54,8 @@
+ 
+ 
+ - (NSString *)DSASignature { return [[DSASignature retain] autorelease]; }
++// ppc: sparkle:edSignature on the enclosure (Ed25519, as in Sparkle 2)
++- (NSString *)EDSignature { return [[propertiesDictionary objectForKey:@"enclosure"] objectForKey:@"sparkle:edSignature"]; }
+ 
+ - (void)setDSASignature:(NSString *)aDSASignature
+ {
+--- a/SUBasicUpdateDriver.m
++++ b/SUBasicUpdateDriver.m
+@@ -10,6 +10,7 @@
+ 
+ #import "SUHost.h"
+ #import "SUDSAVerifier.h"
++#import "SUEdDSAVerifier.h"
+ #import "SUInstaller.h"
+ #import "SUStandardVersionComparator.h"
+ #import "SUUnarchiver.h"
+@@ -179,16 +180,36 @@
+ 
+ - (void)downloadDidFinish:(NSURLDownload *)d
+ {
+-	// New in Sparkle 1.5: we're now checking signatures on all non-secure downloads, where "secure" is defined as both the appcast and the download being transmitted over SSL.
+-	NSURL *downloadURL = [[d request] URL];
+-	if (!(([[downloadURL scheme] isEqualToString:@"https"] && [[appcastURL scheme] isEqualToString:@"https"]) ||
+-		  ([downloadURL isFileURL] && [appcastURL isFileURL])))
++	// ppc: every update must be signed, whatever it was downloaded over (stock 1.5
++	// skipped the check when the appcast and the archive both came over HTTPS).
++	// An app with an Ed25519 key (SUPublicEDKey) needs a valid sparkle:edSignature,
++	// as in Sparkle 2; an app with only a DSA key needs a valid DSA signature, as
++	// before; an app with no key gets no updates.
++	NSString *failure = nil;
++	if ([host publicEDKey])
+ 	{
+-		if (![host publicDSAKey] || ![SUDSAVerifier validatePath:downloadPath withEncodedDSASignature:[updateItem DSASignature] withPublicDSAKey:[host publicDSAKey]])
+-		{
+-			[self abortUpdateWithError:[NSError errorWithDomain:SUSparkleErrorDomain code:SUSignatureError userInfo:[NSDictionary dictionaryWithObjectsAndKeys:SULocalizedString(@"An error occurred while extracting the archive. Please try again later.", nil), NSLocalizedDescriptionKey, @"The update is improperly signed.", NSLocalizedFailureReasonErrorKey, nil]]];
+-			return;
+-		}
++		if (![updateItem EDSignature])
++			failure = @"The update has no EdDSA signature (sparkle:edSignature).";
++		else if (![SUEdDSAVerifier validatePath:downloadPath withEncodedEdSignature:[updateItem EDSignature] withPublicEdKey:[host publicEDKey]])
++			failure = @"The update's EdDSA signature is not valid.";
++	}
++	else if ([host publicDSAKey])
++	{
++		if (![updateItem DSASignature])
++			failure = @"The update has no DSA signature (sparkle:dsaSignature).";
++		else if (![SUDSAVerifier validatePath:downloadPath withEncodedDSASignature:[updateItem DSASignature] withPublicDSAKey:[host publicDSAKey]])
++			failure = @"The update's DSA signature is not valid.";
++	}
++	else
++	{
++		failure = @"The app has no public key (SUPublicEDKey) to check updates with.";
++	}
++	
++	if (failure)
++	{
++		NSLog(@"Sparkle: refusing the update: %@", failure);
++		[self abortUpdateWithError:[NSError errorWithDomain:SUSparkleErrorDomain code:SUSignatureError userInfo:[NSDictionary dictionaryWithObjectsAndKeys:SULocalizedString(@"An error occurred while extracting the archive. Please try again later.", nil), NSLocalizedDescriptionKey, failure, NSLocalizedFailureReasonErrorKey, nil]]];
++		return;
+ 	}
+ 	
+ 	[self extractUpdate];
+--- a/SUUpdater.m
++++ b/SUUpdater.m
+@@ -71,8 +71,9 @@
+         [self registerAsObserver];
+ 		
+ 		// Saving-the-developer-from-a-stupid-mistake-check:
+-		if (![[[self feedURL] scheme] isEqualToString:@"https"] && ![host publicDSAKey])
+-			NSRunAlertPanel(@"Insecure update error!", @"For security reasons, you need to distribute your appcast over SSL or sign your updates. See Sparkle's documentation for more information.", @"OK", nil, nil);
++		// ppc: updates are only installed when signed, so an app without a key can never update.
++		if (![host publicEDKey] && ![host publicDSAKey])
++			NSRunAlertPanel(@"Update signing key missing!", @"This app has no SUPublicEDKey in its Info.plist, so Sparkle will refuse every update. Add the public key from generate_keys; see Sparkle's README.", @"OK", nil, nil);
+ 		
+         // This runs the permission prompt if needed, but never before the app has finished launching because the runloop won't run before that
+         [self performSelector:@selector(startUpdateCycle) withObject:nil afterDelay:0];

@@ -1,0 +1,26 @@
+#!/bin/sh
+# gui-run [-t SECS] CMD [ARGS...]
+# Run CMD inside a logged-in GUI session from an SSH shell (Leopard won't let SSH
+# processes reach the WindowServer). Prints the output; exits with CMD's status.
+# Requires the local.ppc.gui-runner LaunchAgent (tools/install-gui-runner.sh).
+T=60
+if [ "$1" = "-t" ]; then T=$2; shift 2; fi
+[ $# -gt 0 ] || { echo "usage: gui-run [-t secs] cmd [args...]" >&2; exit 2; }
+D="$HOME/.gui-run"; mkdir -p "$D/queue" "$D/out" "$D/tmp"
+id="$$-$(date +%s)"
+q() { printf "'%s' " "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+{ printf 'cd '; q "$PWD"; echo; for a in "$@"; do q "$a"; done; echo; } > "$D/tmp/$id"
+mv "$D/tmp/$id" "$D/queue/$id"            # atomic: runner never sees a partial job
+i=0
+while [ ! -f "$D/out/$id.exit" ]; do
+  sleep 1; i=$((i+1))
+  if [ $i -ge "$T" ]; then
+    if rm "$D/queue/$id" 2>/dev/null; then
+      echo "gui-run: job never started after ${T}s. Is this user logged in to a GUI session with the runner loaded?" >&2
+    else
+      echo "gui-run: job still running after ${T}s; output so far:" >&2; cat "$D/out/$id.log" >&2
+    fi
+    exit 124
+  fi
+done
+cat "$D/out/$id.log"; rc=$(cat "$D/out/$id.exit"); rm -f "$D/out/$id".*; exit "$rc"

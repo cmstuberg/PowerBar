@@ -1,0 +1,84 @@
+#!/usr/bin/perl
+# A scripted stand-in for pianobar, for test/enginetest. It writes exactly what
+# pianobar writes with PowerBar's config (ESC[2K before each message, the
+# PPB: prefixes, \r after time lines, no newline after a prompt or a one-key
+# answer) and checks every answer it gets. Exit 0 = the conversation went as
+# expected; 3 = it got something else (the reason is on stderr).
+use strict;
+$| = 1;
+my $C = "\e[2K";
+
+sub fail { print STDERR "fake-pianobar: $_[0]\n"; exit 3; }
+sub key {
+    my $c;
+    sysread (STDIN, $c, 1) == 1 or fail ("stdin closed, wanted a key");
+    return $c;
+}
+sub line {
+    my ($s, $c) = ("", "");
+    while (1) {
+        sysread (STDIN, $c, 1) == 1 or fail ("stdin closed, wanted a line");
+        return $s if $c eq "\n";
+        $s .= $c;
+    }
+}
+sub expect_key  { my $k = key ();  $k eq $_[0] or fail ("wanted key '$_[0]', got '$k'"); }
+sub expect_line { my $l = line (); $l eq $_[0] or fail ("wanted line '$_[0]', got '$l'"); print "$l\n"; }
+sub event {
+    my ($type, %kv) = @_;
+    print "PPB:EVENT $type\n";
+    print map { "$_=$kv{$_}\n" } sort keys %kv;
+    print "PPB:END\n";
+}
+sub tick { print "${C}PPB:TIME $_[0]/03:00\r"; }
+
+$ENV{XDG_CONFIG_HOME} or fail ("no XDG_CONFIG_HOME");
+open (my $cf, "<", "$ENV{XDG_CONFIG_HOME}/pianobar/config") or fail ("no config");
+my $conf = join ("", <$cf>);
+$conf =~ /^format_time = %e\/%t$/m or fail ("config: format_time");
+$conf =~ /^volume = -3$/m && $conf =~ /^gain_mul = 0$/m or fail ("config: volume");
+
+print "Welcome to pianobar (2024.12.21)! Press ? for a list of commands.\n";
+print "${C}PPB:ASK Email: nobody\@example.invalid\n";
+print "${C}PPB:ASK Password: ";
+my $pw = line ();
+$pw eq "secret pass" or fail ("password: got '$pw'");
+print "\n${C}PPB:INFO Login... ";
+print "Ok.\n";
+event ("userlogin", pRet => 1, pRetStr => "Everything is fine :)", wRet => 0, stationCount => 0);
+print "${C}PPB:INFO Get stations... Ok.\n";
+event ("usergetstations", pRet => 1, wRet => 0, stationCount => 2,
+       station0 => "Jazz Radio", station1 => "Rock Radio");
+print "${C}PPB:LIST  0)     Jazz Radio\n${C}PPB:LIST  1)     Rock Radio\n";
+print "${C}PPB:ASK Select station: ";
+expect_line ("1");
+print "${C}PPB:PLAY Station \"Rock Radio\" (123)\n";
+event ("songstart", title => "Song A", artist => "Artist A", album => "Album A",
+       songDuration => 180, stationName => "Rock Radio", rating => 0,
+       titleNext0 => "Song B", artistNext0 => "Artist B", pRet => 1, wRet => 0,
+       stationCount => 2, station0 => "Jazz Radio", station1 => "Rock Radio");
+tick ("00:01"); tick ("00:02");
+
+expect_key ("b");                                     # bookmark: one-key answer
+print "${C}PPB:ASK Bookmark [s]ong or [a]rtist? ";
+expect_key ("s");
+print "s";                                            # echoed, no newline
+print "${C}PPB:INFO Bookmarking song... Ok.\n";
+tick ("00:03");
+
+expect_key ("r");                                     # rename: line answer
+print "${C}PPB:ASK New name: ";
+expect_line ("Jazz Mix");
+print "${C}PPB:INFO Renaming station... Ok.\n";
+event ("stationrename", pRet => 1, wRet => 0, stationCount => 2,
+       station0 => "Jazz Mix", station1 => "Rock Radio");
+tick ("00:04");
+
+expect_key ("h");                                     # history: cancel
+print "${C}PPB:LIST  0) Artist A - Song A \xe2\x99\xa5\n";
+print "${C}PPB:ASK Select song: ";
+expect_line ("");
+tick ("00:05");
+
+expect_key ("q");
+exit 0;
